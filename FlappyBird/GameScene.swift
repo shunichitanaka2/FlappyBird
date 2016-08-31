@@ -7,22 +7,32 @@
 //
 
 import SpriteKit
+import AVFoundation
 
 
-class GameScene: SKScene, SKPhysicsContactDelegate {
+class GameScene: SKScene, SKPhysicsContactDelegate, AVAudioPlayerDelegate {
+    
+    var audioPlayer:AVAudioPlayer!
     
     var scrollNode:SKNode!
     var wallNode:SKNode!
     var bird:SKSpriteNode!
+    var item:SKNode!
     
     let birdCategory: UInt32 = 1 << 0
     let groundCategory:UInt32 = 1 << 1
     let wallCategory:UInt32 = 1 << 2
     let scoreCategory:UInt32 = 1 << 3
+    let itemCategory:UInt32 = 1 << 4
     
     var score = 0
     var scoreLabelNode:SKLabelNode!
     var bestScoreLabelNode:SKLabelNode!
+    
+    
+    var itemScoreNode:SKLabelNode!
+    var itemScore = 0
+    
     let userDefaults:NSUserDefaults = NSUserDefaults.standardUserDefaults()
     
     override func didMoveToView(view: SKView) {
@@ -31,6 +41,20 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         physicsWorld.contactDelegate = self
         
         backgroundColor = UIColor(colorLiteralRed:0.15,green:0.75,blue:0.9,alpha: 1)
+        
+        let audioPath = NSURL(fileURLWithPath: NSBundle.mainBundle().pathForResource("coin01", ofType: "mp3")!)
+        
+        do {
+             audioPlayer = try AVAudioPlayer(contentsOfURL: audioPath)
+        } catch let error as NSError{
+            print(error)
+        }
+        
+        
+        
+        audioPlayer.delegate = self
+        audioPlayer.prepareToPlay()
+        
         
         scrollNode = SKNode()
         addChild(scrollNode)
@@ -41,11 +65,16 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         bird = SKSpriteNode()
         addChild(bird)
         
+        item = SKNode()
+        addChild(item)
+        
         setupGround()
         setupCloud()
         setupWall()
         setupBird()
         setupScrollLabel()
+        setupItem()
+        
     }
     
     func setupGround() {
@@ -140,7 +169,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             
             let under_wall_y = CGFloat(under_wall_lowest_y + random_y)
             
-            let slit_length = self.frame.size.width / 4
+            let slit_length = self.frame.size.width / 3
             
             
             //under Wall Create
@@ -208,7 +237,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         bird.physicsBody?.categoryBitMask = birdCategory
         bird.physicsBody?.collisionBitMask = groundCategory | wallCategory
-        bird.physicsBody?.contactTestBitMask = groundCategory | wallCategory
+        bird.physicsBody?.contactTestBitMask = groundCategory | wallCategory | itemCategory
+        
         
         bird.runAction(flap)
         
@@ -233,9 +263,38 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         if scrollNode.speed <= 0 {
             return
         }
+        print("Touched")
+        if (contact.bodyA.categoryBitMask & itemCategory) == itemCategory || (contact.bodyB.categoryBitMask & itemCategory) == itemCategory{
+            print("ItemUp")
+            var firstBody, secondBody: SKPhysicsBody
+            
+            
+            if contact.bodyA.categoryBitMask < contact.bodyB.categoryBitMask {
+                firstBody = contact.bodyA
+                secondBody = contact.bodyB
+            } else {
+                firstBody = contact.bodyB
+                secondBody = contact.bodyA
+            }
+            
+            
+            if firstBody.categoryBitMask & birdCategory != 0 &&
+                secondBody.categoryBitMask & itemCategory != 0 {
+                secondBody.node!.removeFromParent()
+            }
+            
+            itemScore += 1
+            itemScoreNode.text = "ItemScore:\(itemScore)"
+            
+            audioPlayer.play()
+            
+            print("ItemUpEND!!")
+            return
+        }
+        
         
         if (contact.bodyA.categoryBitMask & scoreCategory) == scoreCategory || (contact.bodyB.categoryBitMask & scoreCategory) == scoreCategory{
-            print("ScoreUp")
+            //print("ScoreUp")
             score += 1
             scoreLabelNode.text = "Score:\(score)"
             
@@ -272,6 +331,7 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         bird.zRotation = 0.0
         
         wallNode.removeAllChildren()
+        item.removeAllChildren()
         
         bird.speed = 1
         scrollNode.speed = 1
@@ -294,11 +354,70 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         bestScoreLabelNode.zPosition = 100 // 一番手前に表示する
         bestScoreLabelNode.horizontalAlignmentMode = SKLabelHorizontalAlignmentMode.Left
         
+        itemScore = 0
+        itemScoreNode = SKLabelNode()
+        itemScoreNode.fontColor = UIColor.blackColor()
+        itemScoreNode.position = CGPoint(x: 10, y: self.frame.size.height - 90)
+        itemScoreNode.zPosition = 100 // 一番手前に表示する
+        itemScoreNode.horizontalAlignmentMode = SKLabelHorizontalAlignmentMode.Left
+        itemScoreNode.text = "itemScore:\(itemScore)"
+        self.addChild(itemScoreNode)
+        
         let bestScore = userDefaults.integerForKey("BEST")
         bestScoreLabelNode.text = "Best Score:\(bestScore)"
         self.addChild(bestScoreLabelNode)
     }
     
+    func setupItem() {
+        
+        //let Circle = SKShapeNode(circleOfRadius: 15)
+        
+        //item = SKShapeNode(circleOfRadius: 15)
+        
+        //let CircleNode = SKNode()
+        
+        let moveItem = SKAction.moveByX(-self.frame.size.width - 70 , y: 0, duration: 4.0)
+        
+        let removeItem = SKAction.removeFromParent()
+        
+        let repeatScrollItem = SKAction.repeatActionForever(SKAction.sequence([moveItem, removeItem]))
+        
+        
+        let createWallAnimation = SKAction.runBlock({
+
+            //let Circle = SKShapeNode(circleOfRadius: 15)
+            let Circle = SKShapeNode(circleOfRadius: 10)
+            Circle.fillColor = UIColor.redColor()
+            
+            Circle.physicsBody = SKPhysicsBody(circleOfRadius: 10.0)
+            Circle.physicsBody?.categoryBitMask = self.itemCategory
+            Circle.physicsBody?.contactTestBitMask = self.birdCategory
+            Circle.physicsBody?.collisionBitMask = self.birdCategory
+            Circle.physicsBody?.dynamic = false
+            
+            
+            
+            let random_y_range = self.frame.size.height / 3
+            let random_y = arc4random_uniform( UInt32(random_y_range) )
+            let random_y_F = CGFloat(random_y)
+            
+            Circle.position = CGPoint(x: self.frame.size.width + 15, y: random_y_F + 350)
+            Circle.zPosition = 100.0 // 雲より手前、地面より奥
+            //self.item.addChild(Circle)
+            Circle.runAction(repeatScrollItem)
+            
+            self.item.addChild(Circle)
+            
+            
+        })
+        
+        let waitAnimation = SKAction.waitForDuration(2)
+        
+        let repeatForeverAnimation = SKAction.repeatActionForever(SKAction.sequence([createWallAnimation, waitAnimation]))
+        
+        runAction(repeatForeverAnimation)
+
+    }
     
 }
 
